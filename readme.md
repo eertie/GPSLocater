@@ -16,12 +16,6 @@ Welcome to GPSLocater! This app is designed to help you easily track your locati
 - **Error Handling**: Robust error handling to ensure a smooth user experience, with alerts for permission issues and location errors.
 - **Settings Management**: Customize app settings, including theme preferences and location management.
 
-## Getting Started
-To start using GPSLocater, follow these simple steps:
-
-1. **Download the App**: Get the latest version from the App Store or clone the repository to run it locally.
-2. **Open the App**: Launch GPSLocater and allow location access.
-3. **Explore**: Use the main features to track your location, save new locations, and view weather information.
 
 ## How to Use
 - **Track Your Location**: Open the app, and your current location will be displayed on the map.
