@@ -14,6 +14,9 @@ struct HomeView: View {
     @State private var alertMessage = ""
     @State private var isLoading = false
     @State private var selectedTheme: ThemeColor
+    @State private var searchText: String = ""
+    @State private var showFavoritesOnly: Bool = false
+    @FocusState private var isSearchFocused: Bool
     
     init() {
         _selectedTheme = State(initialValue: ThemeManager.shared.current)
@@ -30,6 +33,15 @@ struct HomeView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Theme.Colors.primaryBackground, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+//            .toolbar {
+//                // Keyboard toolbar for dismissing when search is focused
+//                ToolbarItemGroup(placement: .keyboard) {
+//                    Spacer()
+//                    Button("Done") {
+//                        isSearchFocused = false
+//                    }
+//                }
+//            }
         }
         .tint(Theme.Colors.accent)
         .preferredColorScheme(themeManager.isDarkMode ? .dark : .light)
@@ -68,24 +80,44 @@ struct HomeView: View {
                 isLoading: isLoading
             )
             .padding(.vertical, Theme.Dimensions.smallPadding)
+          
+            // Show search only when there are more than 15 saved locations
+            if savedLocations.count > 15 {
+                searchBar
+                    .padding(.horizontal, Theme.Dimensions.padding)
+                    .padding(.bottom, Theme.Dimensions.smallPadding)
+            }
             
-            HStack {
+//            filterBar
+//                .padding(.horizontal, Theme.Dimensions.padding)
+//                .padding(.bottom, Theme.Dimensions.smallPadding)
+//            
+            HStack(spacing: 8) {
                 Text("Saved locations")
                     .font(Theme.Typography.caption)
                     .foregroundStyle(Theme.Colors.secondaryText)
-                    .padding(.horizontal, Theme.Dimensions.padding)
+                
+                // Live count badge
+                Text("\(filteredSavedLocations.count)")
+                    .font(.caption2)
+                    .padding(.horizontal, 6)
                     .padding(.vertical, 2)
+                    .background(Theme.Colors.cardBackground)
+                    .clipShape(Capsule())
+                    .foregroundStyle(Theme.Colors.secondaryText)
+                
                 Spacer()
             }
+            .padding(.horizontal, Theme.Dimensions.padding)
+            .padding(.vertical, 2)
         }
         .background(Theme.Colors.primaryBackground)
     }
     
     private var scrollableContent: some View {
-        ScrollView {
-            LocationsList(savedLocations: savedLocations)
-                .padding(.vertical, Theme.Dimensions.smallPadding)
-        }
+        // Use a List inside LocationsListSection to enable system swipe actions.
+        LocationsList(savedLocations: filteredSavedLocations)
+            .scrollDismissesKeyboard(.interactively)
     }
     
     // In HomeView.swift
@@ -104,6 +136,90 @@ struct HomeView: View {
         }
         
         await MainActor.run { isLoading = false }
+    }
+    
+    // MARK: - Search & Filters
+    private var filteredSavedLocations: [SavedLocation] {
+        let text = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        return savedLocations.filter { location in
+            // Basic fields on SavedLocation
+            let nameMatches = location.name.localizedCaseInsensitiveContains(text)
+            let descriptionMatches = location.locationDescription.localizedCaseInsensitiveContains(text)
+            
+            // Optional fields on related LocationEntry
+            let streetMatches = location.locationEntry?.street?.localizedCaseInsensitiveContains(text) == true
+            let placeMatches = location.locationEntry?.place?.localizedCaseInsensitiveContains(text) == true
+            
+            let matchesSearch =
+                text.isEmpty ||
+                nameMatches ||
+                descriptionMatches ||
+                streetMatches ||
+                placeMatches
+            
+            let matchesFavorites = !showFavoritesOnly || location.isFavorite
+            
+            return matchesSearch && matchesFavorites
+        }
+    }
+    
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            // Search field container
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(Theme.Colors.secondaryText)
+                
+                TextField("Search saved locations", text: $searchText)
+                    .textInputAutocapitalization(.never)
+                    .disableAutocorrection(true)
+                    .submitLabel(.search)
+                    .foregroundStyle(Theme.Colors.primaryText)
+                    .focused($isSearchFocused)
+                    .onSubmit { isSearchFocused = false }
+                
+                if !searchText.isEmpty {
+                    Button {
+                        withAnimation { searchText = "" }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Theme.Colors.subtle)
+                    }
+                    .accessibilityLabel("Clear search")
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(Theme.Colors.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Dimensions.cornerRadius))
+            .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
+            
+            // Cancel button appears when focused
+            if isSearchFocused {
+                Button("Cancel") {
+                    withAnimation {
+                        searchText = ""
+                        isSearchFocused = false
+                    }
+                }
+                .foregroundStyle(Theme.Colors.accent)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: isSearchFocused)
+    }
+    
+    private var filterBar: some View {
+        HStack(spacing: 8) {
+            FilterPill(
+                isOn: $showFavoritesOnly,
+                systemImage: "star.fill",
+                title: "Favorites"
+            )
+            
+            Spacer(minLength: 0)
+        }
     }
 }
 
@@ -200,12 +316,37 @@ private struct RefreshButton: View {
 }
 
 private struct LocationsList: View {
-    @Environment(\.modelContext) private var modelContext
     let savedLocations: [SavedLocation]
     
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Dimensions.smallPadding) {
-            LocationsListSection(savedLocations: savedLocations)
+        LocationsListSection(savedLocations: savedLocations)
+    }
+}
+
+// MARK: - Filter Pill
+private struct FilterPill: View {
+    @Binding var isOn: Bool
+    let systemImage: String
+    let title: String
+    
+    var body: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isOn.toggle()
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                Text(title)
+            }
+            .font(.subheadline)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(isOn ? Theme.Colors.accent : Theme.Colors.cardBackground)
+            .foregroundStyle(isOn ? Theme.Colors.buttonText : Theme.Colors.primaryText)
+            .clipShape(Capsule())
+            .shadow(color: .black.opacity(isOn ? 0.08 : 0.03), radius: isOn ? 4 : 2, x: 0, y: 1)
         }
+        .buttonStyle(.plain)
     }
 }

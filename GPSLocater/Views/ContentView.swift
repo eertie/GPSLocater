@@ -4,29 +4,63 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var locationManager: LocationManager
     @EnvironmentObject private var themeManager: ThemeManager
-    @State private var selectedTab = 0
+    
+    private enum Tab: Int, CaseIterable, Hashable {
+        case home = 0
+        case settings = 1
+        case tests = 2
+        
+        var title: String {
+            switch self {
+            case .home: return "Home"
+            case .settings: return "Settings"
+            case .tests: return "Tests"
+            }
+        }
+        
+        var systemImage: String {
+            switch self {
+            case .home: return "house.fill"
+            case .settings: return "gear"
+            case .tests: return "exclamationmark.triangle"
+            }
+        }
+    }
+    
+    @State private var selectedTab: Tab = .home
+    
+    private var availableTabs: [Tab] {
+        isDebugMode ? [.home, .settings, .tests] : [.home, .settings]
+    }
     
     var body: some View {
-        TabView(selection: $selectedTab) {
-            HomeView()
-                .tabItem {
-                    Label("Home", systemImage: "house.fill")
-                }
-                .tag(0)
-            
-            SettingsView()
-                .tabItem {
-                    Label("Settings", systemImage: "gear")
-                }
-                .tag(1)
-            
-            // Add error handling tests tab only in DEBUG mode
-            if isDebugMode {
-                ErrorHandlingTestView()
-                    .tabItem {
-                        Label("Tests", systemImage: "exclamationmark.triangle")
+        NavigationStack {
+            Group {
+                switch selectedTab {
+                case .home:
+                    HomeView()
+                case .settings:
+                    SettingsView()
+                case .tests:
+                    if isDebugMode {
+                        ErrorHandlingTestView()
+                    } else {
+                        HomeView()
                     }
-                    .tag(2)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Picker("", selection: $selectedTab) {
+                        ForEach(availableTabs, id: \.self) { tab in
+                            Text(tab.title).tag(tab)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .controlSize(.small) // make it shorter
+                    .frame(maxWidth: 300) // optional: constrain width a bit
+                }
             }
         }
         .tint(Theme.Colors.accent)

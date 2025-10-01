@@ -9,13 +9,9 @@ struct LocationsListSection: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var themeManager: ThemeManager
     
-    @State private var selectedLocationId: UUID?
-    @State private var isItemLoading = false
-    
-    
     let savedLocations: [SavedLocation]
     
-    @State private var isRefreshing = false
+    @State private var editingLocation: SavedLocation? = nil
     
     private var favoriteLocations: [SavedLocation] {
         savedLocations.filter { $0.isFavorite }
@@ -26,87 +22,130 @@ struct LocationsListSection: View {
     }
     
     var body: some View {
-        Group {
-            if isRefreshing {
-                ProgressView()
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding()
-            } else if savedLocations.isEmpty {
+        List {
+            if savedLocations.isEmpty {
                 EmptyLocationView()
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Theme.Colors.primaryBackground)
             } else {
-                VStack(spacing: 0) {
-                    if !favoriteLocations.isEmpty {
-                        Section {
-                            ForEach(favoriteLocations) { location in
-                                locationLink(for: location)
-                            }
+                if !favoriteLocations.isEmpty {
+                    Section {
+                        ForEach(favoriteLocations) { location in
+                            row(for: location)
                         }
                     }
-                    if !nonFavoriteLocations.isEmpty {
-                        Section {
-                            ForEach(nonFavoriteLocations) { location in
-                                locationLink(for: location)
-                            }
+                }
+                if !nonFavoriteLocations.isEmpty {
+                    Section {
+                        ForEach(nonFavoriteLocations) { location in
+                            row(for: location)
                         }
                     }
                 }
             }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Theme.Colors.primaryBackground)
         .refreshable {
             await refreshData()
         }
-    }
-    private func locationLink(for location: SavedLocation) -> some View {
-        ZStack {
-            if isItemLoading && selectedLocationId == location.id {
-                LoadingItemView()
-            } else {
-                NavigationLink {
-                    LocationDetailView(savedLocation: location)
-                        .modelContext(modelContext)
-                } label: {
-                    LocationRow(location: location)
-                }
-                .buttonStyle(PlainButtonStyle())
-                .onTapGesture {
-                    handleItemTap(location)
-                }
+        // Sheet for editing a single location (from swipe action)
+        .sheet(isPresented: Binding<Bool>(
+            get: { editingLocation != nil },
+            set: { if !$0 { editingLocation = nil } }
+        )) {
+            if let editingLocation {
+                EditLocationView(location: editingLocation)
             }
         }
     }
     
-    private func handleItemTap(_ location: SavedLocation) {
-        selectedLocationId = location.id
-        isItemLoading = true
-        
-        Task {
-            // Simuleer netwerk vertraging
-            //try? await Task.sleep(for: .seconds(4.5))
+    @ViewBuilder
+    private func row(for location: SavedLocation) -> some View {
+        NavigationLink {
+            LocationDetailView(savedLocation: location)
+                .modelContext(modelContext)
+        } label: {
+            LocationRow(location: location)
+                .contentShape(Rectangle())
+        }
+        .listRowInsets(EdgeInsets()) // full-width card look
+        .listRowBackground(Theme.Colors.primaryBackground)
+        .listRowSeparator(.hidden)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            // Edit
+            Button {
+                editingLocation = location
+            } label: {
+                Label("Edit", systemImage: "pencil")
+            }
+            .tint(Theme.Colors.accent)
             
-            await MainActor.run {
-                isItemLoading = false
-                selectedLocationId = nil
+            // Favorite toggle
+            Button {
+                toggleFavorite(location)
+            } label: {
+                Label(location.isFavorite ? "Unfavorite" : "Favorite",
+                      systemImage: location.isFavorite ? "star.slash" : "star.fill")
+            }
+            .tint(Theme.Colors.warning)
+            
+            // Share
+            if let shareText = shareText(for: location) {
+                ShareLink(item: shareText) {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+                .tint(Theme.Colors.accent)
+            }
+            
+            // Delete
+            Button(role: .destructive) {
+                deleteLocation(location)
+            } label: {
+                Label("Delete", systemImage: "trash")
             }
         }
     }
     
-//    private func handleItemTap(_ location: SavedLocation) {
-//        selectedLocationId = location.id
-//        isItemLoading = true
-//        
-//        // Simuleer loading (verwijder dit in productie)
-//        DispatchQueue.main.asyncAfter(deadline: .now() + 11) {
-//            isItemLoading = false
-//            selectedLocationId = nil
-//        }
-//    }
-//    
+    private func toggleFavorite(_ location: SavedLocation) {
+        location.isFavorite.toggle()
+        do {
+            try modelContext.save()
+        } catch {
+            print("Failed to toggle favorite: \(error)")
+        }
+    }
+    
+    private func deleteLocation(_ location: SavedLocation) {
+        withAnimation {
+            modelContext.delete(location)
+            do {
+                try modelContext.save()
+            } catch {
+                print("Failed to delete location: \(error)")
+            }
+        }
+    }
     
     private func refreshData() async {
-        isRefreshing = true
         modelContext.refreshAll()
-        try? await Task.sleep(for: .seconds(0.5))
-        isRefreshing = false
+        try? await Task.sleep(for: .milliseconds(300))
+    }
+    
+    private func shareText(for location: SavedLocation) -> String? {
+        guard let entry = location.locationEntry else { return nil }
+        let coordinates = "\(entry.latitude),\(entry.longitude)"
+        let mapUrl = URL(string: "https://maps.apple.com/?q=\(coordinates)")!
+        
+        var title = location.locationDescription
+        if title.isEmpty {
+            title = entry.street ?? "Location"
+        }
+        
+        var shareText = "📍 \(title)"
+        shareText += "\n\nOpen in Maps: \(mapUrl.absoluteString)"
+        return shareText
     }
 }
 

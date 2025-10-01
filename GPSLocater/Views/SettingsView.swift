@@ -276,7 +276,7 @@ struct SettingsView: View {
             isExporting = false
 
             switch result {
-            case .success(let url):
+            case .success(_):
                 feedbackMessage = "Locations exported successfully"
                 isFeedbackError = false
                 showFeedback = true
@@ -663,58 +663,60 @@ extension Bundle {
 struct LocationsCSV: FileDocument {
     static var readableContentTypes: [UTType] { [.commaSeparatedText] }
 
-    let locations: [SavedLocation]
+    // Store Sendable data instead of non-Sendable model objects
+    private let csvData: Data
 
     init(locations: [SavedLocation]) {
-        self.locations = locations
+        self.csvData = Self.buildCSVData(from: locations)
     }
 
     init(configuration: ReadConfiguration) throws {
-        locations = []
+        // We don't use reading for export; keep empty data.
+        self.csvData = Data()
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        // Create header with all relevant fields
+        FileWrapper(regularFileWithContents: csvData)
+    }
+
+    private static func buildCSVData(from locations: [SavedLocation]) -> Data {
         var csvString = "Name,Description,Street,Place,Latitude,Longitude,Favorite,Created Date,Location Added Date\n"
 
-        // Process each location
+        // Use a fixed, import-compatible date format
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateFormatter.dateFormat = "dd/MM/yyyy, H:mm"
+
         for location in locations {
             let entry = location.locationEntry
 
-            // Break down the array creation into multiple steps
             var rowData: [String] = []
-
-            // Add location details
             rowData.append(location.name)
             rowData.append(location.locationDescription)
 
-            // Add address components
             rowData.append(entry?.street ?? "")
             rowData.append(entry?.place ?? "")
 
-            // Add coordinates
             rowData.append(String(entry?.latitude ?? 0))
             rowData.append(String(entry?.longitude ?? 0))
 
-            // Add metadata
             rowData.append(String(location.isFavorite))
-            rowData.append(location.createdAt.formatted(.dateTime))
-            rowData.append(entry?.timestamp.formatted(.dateTime) ?? "")
+            rowData.append(dateFormatter.string(from: location.createdAt))
+            if let ts = entry?.timestamp {
+                rowData.append(dateFormatter.string(from: ts))
+            } else {
+                rowData.append("")
+            }
 
-            // Process fields
             let processedFields = rowData.map { field in
                 let escapedField = field.replacingOccurrences(of: "\"", with: "\"\"")
                 return "\"\(escapedField)\""
             }
 
-            // Join fields and add newline
-            let row = processedFields.joined(separator: ",")
-            csvString += row + "\n"
+            csvString += processedFields.joined(separator: ",") + "\n"
         }
 
-        // Create and return file wrapper
-        let csvData = Data(csvString.utf8)
-        return FileWrapper(regularFileWithContents: csvData)
+        return Data(csvString.utf8)
     }
 }
 

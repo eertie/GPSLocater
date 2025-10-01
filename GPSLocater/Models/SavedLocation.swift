@@ -1,4 +1,3 @@
-// Models/Location/SavedLocation.swift
 import SwiftData
 import CoreLocation
 
